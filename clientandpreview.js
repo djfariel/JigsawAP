@@ -287,6 +287,7 @@ window.restoreDiv6 = restoreDiv6;
 
 // Call restore functions when pressing number keys 1, 2, 3 (ignore when typing in inputs)
 document.addEventListener('keydown', (e) => {
+    if (window.isDoomModeActive && window.isDoomModeActive()) return;
     const active = document.activeElement;
     const tag = active && active.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || (active && active.isContentEditable)) return;

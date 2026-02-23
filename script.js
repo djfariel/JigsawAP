@@ -2004,9 +2004,12 @@ let startLinkCaptureSource;
 let mediaBindings = null;
 let doomRuntimeAdapter = null;
 let doomActivationInFlight = false;
+let doomStopInFlight = false;
 let doomWadInput = null;
+let doomRestoreMediaHint = null;
 const DOOM_SECRET_SEQUENCE = "hurtmeplenty";
 const DOOM_SEQUENCE_TIMEOUT_MS = 3000;
+const DOOM_SEQUENCE_EVENT_MARK = "__jigsawDoomSequenceHandled";
 let doomSequenceIndex = 0;
 let doomSequenceTimer = 0;
 
@@ -2015,8 +2018,44 @@ var imagePath = "https://images.pexels.com/photos/147411/italy-mountains-dawn-da
 
 function isTextInputFocused() {
     const active = document.activeElement;
+    if (active && active.id === "doomWadFileInput") return false;
     const tag = active && active.tagName;
     return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || !!(active && active.isContentEditable);
+}
+
+function isDoomModeActive() {
+    const rendererActive = !!(rendererFacade && rendererFacade.isDoomActive && rendererFacade.isDoomActive());
+    const runtimeActive = !!(doomRuntimeAdapter && doomRuntimeAdapter.isRunning && doomRuntimeAdapter.isRunning());
+    return rendererActive && runtimeActive;
+}
+window.isDoomModeActive = isDoomModeActive;
+
+function hasDoomKeyboardHooks() {
+    if (!doomRuntimeAdapter) return false;
+    const running = !!(doomRuntimeAdapter.isRunning && doomRuntimeAdapter.isRunning());
+    const resumable = !!(doomRuntimeAdapter.canResume && doomRuntimeAdapter.canResume());
+    return running || resumable;
+}
+
+function isFunctionKeyEvent(event) {
+    if (!event) return false;
+    const code = String(event.code || "");
+    const key = String(event.key || "");
+    return /^F\d{1,2}$/i.test(code) || /^F\d{1,2}$/i.test(key);
+}
+
+function isStandaloneModifierKey(event) {
+    const code = String((event && event.code) || "");
+    return code === "ControlLeft" || code === "ControlRight" || code === "AltLeft" || code === "AltRight" || code === "ShiftLeft" || code === "ShiftRight";
+}
+
+function shouldForwardToDoom(event) {
+    if (!event || !isDoomModeActive()) return false;
+    if (isTextInputFocused()) return false;
+    if (isFunctionKeyEvent(event)) return false;
+    if (event.metaKey) return false;
+    if ((event.ctrlKey || event.altKey) && !isStandaloneModifierKey(event)) return false;
+    return true;
 }
 
 function getDoomStopButton() {
@@ -2060,6 +2099,11 @@ function getOrCreateDoomAdapter() {
             if (!status || !status.message) return;
             if (status.level === "error") console.error("[DOOM]", status.message);
             else console.log("[DOOM]", status.message);
+        },
+        onExit: (_payload) => {
+            stopDoomMode("runtime-exit").catch((error) => {
+                console.error("[DOOM] failed to stop after runtime exit", error);
+            });
         }
     });
     return doomRuntimeAdapter;
@@ -2085,6 +2129,13 @@ function requestDoomWadFile() {
         const settle = (file) => {
             if (settled) return;
             settled = true;
+            try { input.blur(); } catch (_e) {}
+            try {
+                const active = document.activeElement;
+                if (active && active.id === "doomWadFileInput" && document.body && typeof document.body.focus === "function") {
+                    document.body.focus();
+                }
+            } catch (_e) {}
             resolve(file || null);
         };
         const onChange = () => {
@@ -2108,36 +2159,79 @@ function requestDoomWadFile() {
 }
 
 async function startDoomModeWithWad(wadFile) {
-    if (!wadFile) return false;
     if (!rendererFacade || !rendererFacade.setDoomSource) {
         throw new Error("Renderer facade is unavailable");
     }
+    doomRestoreMediaHint = {
+        imagePath: imagePath || "",
+        timestamp: Date.now()
+    };
     const adapter = getOrCreateDoomAdapter();
-    await adapter.start(wadFile);
+    await adapter.start(wadFile || null);
     const ok = rendererFacade.setDoomSource(adapter, adapter.getFrameSource ? adapter.getFrameSource() : null);
     if (!ok) throw new Error("Failed to bind DOOM source");
     refreshDoomUi();
     return true;
 }
 
-async function stopDoomMode() {
-    if (rendererFacade && rendererFacade.clearDoomSource) {
-        rendererFacade.clearDoomSource(true);
+async function stopDoomMode(reason = "manual") {
+    if (doomStopInFlight) return;
+    doomStopInFlight = true;
+    try {
+        if (rendererFacade && rendererFacade.clearDoomSource) {
+            rendererFacade.clearDoomSource(true);
+        }
+        if (doomRuntimeAdapter && doomRuntimeAdapter.stop) {
+            await doomRuntimeAdapter.stop();
+        }
+        const frameSource = (rendererFacade && rendererFacade.media && rendererFacade.media.getFrameSource)
+            ? rendererFacade.media.getFrameSource()
+            : null;
+        const restorePath = (doomRestoreMediaHint && doomRestoreMediaHint.imagePath) ? doomRestoreMediaHint.imagePath : imagePath;
+        if (!frameSource && restorePath && typeof setImagePath === "function") {
+            try {
+                setImagePath(restorePath, { forceMediaKind: "image", preserveVideo: false });
+            } catch (_e) {}
+        }
+        // After switching away from DOOM, static sources (image mode) do not
+        // naturally produce "new frames", so force a one-shot redraw of gameCanvas.
+        if (puzzle && typeof puzzle.applyMediaFrame === "function" && frameSource) {
+            try {
+                const nowMs = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+                puzzle.applyMediaFrame(frameSource, nowMs);
+            } catch (_e) {}
+        }
+        if (rendererFacade && rendererFacade.sceneState && rendererFacade.sceneState.markAllDirty) {
+            rendererFacade.sceneState.markAllDirty();
+        }
+        if (rendererFacade && rendererFacade.renderDirtyPieces) {
+            rendererFacade.renderDirtyPieces();
+        }
+        doomRestoreMediaHint = null;
+        if (reason) {
+            console.log("[DOOM] mode stopped:", reason);
+        }
+        refreshDoomUi();
+    } finally {
+        doomStopInFlight = false;
     }
-    if (doomRuntimeAdapter && doomRuntimeAdapter.stop) {
-        await doomRuntimeAdapter.stop();
-    }
-    refreshDoomUi();
 }
 window.stopDoomMode = stopDoomMode;
 
 async function activateDoomFromSecretSequence() {
-    if (doomActivationInFlight) return;
+    if (doomActivationInFlight) {
+        return;
+    }
     doomActivationInFlight = true;
     try {
-        const wadFile = await requestDoomWadFile();
-        if (!wadFile) return;
-        await startDoomModeWithWad(wadFile);
+        const adapter = getOrCreateDoomAdapter();
+        if (adapter && adapter.canResume && adapter.canResume()) {
+            await startDoomModeWithWad(null);
+        } else {
+            const wadFile = await requestDoomWadFile();
+            if (!wadFile) return;
+            await startDoomModeWithWad(wadFile);
+        }
     } catch (error) {
         const message = error && error.message ? error.message : "Failed to start DOOM mode.";
         console.error("[DOOM] activation failed", error);
@@ -2175,7 +2269,13 @@ function scheduleDoomSequenceReset() {
 }
 
 function handleDoomSecretSequence(event) {
-    if (!event || isTextInputFocused()) return;
+    const running = !!(doomRuntimeAdapter && doomRuntimeAdapter.isRunning && doomRuntimeAdapter.isRunning());
+    if (running) return;
+    if (!window.gameplayStarted) {
+        resetDoomSequence();
+        return;
+    }
+    if (!event) return;
     if (event.ctrlKey || event.metaKey || event.altKey) {
         resetDoomSequence();
         return;
@@ -2198,6 +2298,13 @@ function handleDoomSecretSequence(event) {
         return;
     }
     if (doomSequenceIndex > 0) scheduleDoomSequenceReset();
+}
+
+function processDoomSecretSequenceEvent(event) {
+    if (!event) return;
+    if (event[DOOM_SEQUENCE_EVENT_MARK]) return;
+    event[DOOM_SEQUENCE_EVENT_MARK] = true;
+    handleDoomSecretSequence(event);
 }
 
 function loadInitialFile() {
@@ -4029,28 +4136,57 @@ function rotateCurrentPiece(counter = false){
     
 }
 
+window.addEventListener('keydown', function(event) {
+    processDoomSecretSequenceEvent(event);
+}, true);
+
 document.addEventListener('keydown', function(event) {
-    handleDoomSecretSequence(event);
+    processDoomSecretSequenceEvent(event);
 }, true);
 
 document.addEventListener('keydown', function(event) {
     if(event.key === 'R' || event.key === 'r' || event.key === ' '){
+        if (isDoomModeActive()) return;
         rotateCurrentPiece();
     }
 });
 
 document.addEventListener("keydown", function(event) {
-    if (!doomRuntimeAdapter || !doomRuntimeAdapter.isRunning || !doomRuntimeAdapter.isRunning()) return;
-    if (isTextInputFocused()) return;
-    if (!(event.altKey || (event.ctrlKey && event.shiftKey))) return;
-    doomRuntimeAdapter.sendKeyEvent(event, "down");
+    if (!hasDoomKeyboardHooks()) return;
+    if (!isFunctionKeyEvent(event)) return;
+    event.stopPropagation();
+    event.stopImmediatePropagation();
 }, true);
 
 document.addEventListener("keyup", function(event) {
-    if (!doomRuntimeAdapter || !doomRuntimeAdapter.isRunning || !doomRuntimeAdapter.isRunning()) return;
-    if (isTextInputFocused()) return;
-    if (!(event.altKey || (event.ctrlKey && event.shiftKey))) return;
+    if (!hasDoomKeyboardHooks()) return;
+    if (!isFunctionKeyEvent(event)) return;
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+}, true);
+
+window.addEventListener("keydown", function(event) {
+    if (!hasDoomKeyboardHooks()) return;
+    if (!isFunctionKeyEvent(event)) return;
+    event.stopPropagation();
+}, true);
+
+window.addEventListener("keyup", function(event) {
+    if (!hasDoomKeyboardHooks()) return;
+    if (!isFunctionKeyEvent(event)) return;
+    event.stopPropagation();
+}, true);
+
+document.addEventListener("keydown", function(event) {
+    if (!shouldForwardToDoom(event)) return;
+    doomRuntimeAdapter.sendKeyEvent(event, "down");
+    if (event.cancelable) event.preventDefault();
+}, true);
+
+document.addEventListener("keyup", function(event) {
+    if (!shouldForwardToDoom(event)) return;
     doomRuntimeAdapter.sendKeyEvent(event, "up");
+    if (event.cancelable) event.preventDefault();
 }, true);
 
 
