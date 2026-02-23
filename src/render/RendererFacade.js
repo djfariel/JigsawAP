@@ -250,6 +250,42 @@
             }
         }
 
+        setDoomSource(doomAdapter, sourceCanvas = null) {
+            if (!this.media || !this.media.setDoomSource) return false;
+            const ok = this.media.setDoomSource(doomAdapter, sourceCanvas);
+            const source = this.media.getFrameSource ? this.media.getFrameSource() : sourceCanvas;
+            if (source) {
+                if (this.canvasRenderer && this.canvasRenderer.setMediaSource) {
+                    this.canvasRenderer.setMediaSource(source);
+                }
+                if (this.webglRenderer && this.webglRenderer.setMediaSource) {
+                    this.webglRenderer.setMediaSource(source);
+                }
+            }
+            if (this.sceneState && this.sceneState.markAllDirty) this.sceneState.markAllDirty();
+            return !!ok;
+        }
+
+        clearDoomSource(restorePrevious = true) {
+            if (!this.media || !this.media.clearDoomSource) return false;
+            const ok = this.media.clearDoomSource(restorePrevious);
+            const source = this.media.getFrameSource ? this.media.getFrameSource() : null;
+            if (source) {
+                if (this.canvasRenderer && this.canvasRenderer.setMediaSource) {
+                    this.canvasRenderer.setMediaSource(source);
+                }
+                if (this.webglRenderer && this.webglRenderer.setMediaSource) {
+                    this.webglRenderer.setMediaSource(source);
+                }
+            }
+            if (this.sceneState && this.sceneState.markAllDirty) this.sceneState.markAllDirty();
+            return !!ok;
+        }
+
+        isDoomActive() {
+            return !!(this.media && this.media.isDoomActive && this.media.isDoomActive());
+        }
+
         async setCameraStream(constraints = { video: true, audio: false }) {
             if (!this.media || !this.media.setCameraStream) return null;
             await this.media.setCameraStream(constraints);
