@@ -2046,16 +2046,33 @@ function isFunctionKeyEvent(event) {
 
 function isStandaloneModifierKey(event) {
     const code = String((event && event.code) || "");
-    return code === "ControlLeft" || code === "ControlRight" || code === "AltLeft" || code === "AltRight" || code === "ShiftLeft" || code === "ShiftRight";
+    const key = String((event && event.key) || "");
+    return (
+        code === "ControlLeft" || code === "ControlRight" || code === "Control" ||
+        code === "AltLeft" || code === "AltRight" || code === "Alt" ||
+        code === "ShiftLeft" || code === "ShiftRight" || code === "Shift" ||
+        key === "Control" || key === "Alt" || key === "Shift"
+    );
 }
 
 function shouldForwardToDoom(event) {
     if (!event || !isDoomModeActive()) return false;
+    if (event.isTrusted === false) return false;
+    if ((event.ctrlKey || event.altKey) && !isStandaloneModifierKey(event)) return false;
     if (isTextInputFocused()) return false;
     if (isFunctionKeyEvent(event)) return false;
     if (event.metaKey) return false;
-    if ((event.ctrlKey || event.altKey) && !isStandaloneModifierKey(event)) return false;
     return true;
+}
+
+function isControlOrSpaceEvent(event) {
+    if (!event) return false;
+    const code = String(event.code || "");
+    const key = String(event.key || "");
+    return (
+        code === "ControlLeft" || code === "ControlRight" || code === "Control" ||
+        code === "Space" || key === " " || key === "Spacebar"
+    );
 }
 
 function getDoomStopButton() {
@@ -4180,13 +4197,13 @@ window.addEventListener("keyup", function(event) {
 document.addEventListener("keydown", function(event) {
     if (!shouldForwardToDoom(event)) return;
     doomRuntimeAdapter.sendKeyEvent(event, "down");
-    if (event.cancelable) event.preventDefault();
+    if (!isControlOrSpaceEvent(event) && event.cancelable) event.preventDefault();
 }, true);
 
 document.addEventListener("keyup", function(event) {
     if (!shouldForwardToDoom(event)) return;
     doomRuntimeAdapter.sendKeyEvent(event, "up");
-    if (event.cancelable) event.preventDefault();
+    if (!isControlOrSpaceEvent(event) && event.cancelable) event.preventDefault();
 }, true);
 
 

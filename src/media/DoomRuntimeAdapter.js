@@ -214,6 +214,9 @@
                     this._emitStatus("DOOM persistent settings backend failed verification: idbfs write/read/sync probe failed.", "error");
                     return false;
                 }
+                if (this._sanitizePersistentConfigToSoundOnly()) {
+                    await this._syncFs(false);
+                }
                 return true;
             } catch (error) {
                 this._emitStatus("DOOM persistent settings load failed: " + (error && error.message ? error.message : String(error)), "warn");
@@ -244,6 +247,62 @@
 
         _getPreferredRuntimeConfigPath() {
             return this._persistConfigPath;
+        }
+
+        _isSoundConfigKey(keyName) {
+            const key = String(keyName || "").trim().toLowerCase();
+            if (!key) return false;
+            return key === "sfx_volume" || key === "music_volume";
+        }
+
+        _sanitizeConfigTextToSoundOnly(cfgText) {
+            const original = String(cfgText == null ? "" : cfgText);
+            if (!original) return original;
+            const useCrlf = original.includes("\r\n");
+            const eol = useCrlf ? "\r\n" : "\n";
+            const hadTrailingNewline = /\r?\n$/.test(original);
+            const lines = original.split(/\r?\n/);
+            const kept = [];
+            for (const line of lines) {
+                const trimmed = String(line || "").trim();
+                if (!trimmed) {
+                    kept.push(line);
+                    continue;
+                }
+                if (trimmed.startsWith("#") || trimmed.startsWith("//")) {
+                    kept.push(line);
+                    continue;
+                }
+                const keyMatch = trimmed.match(/^([A-Za-z0-9_]+)/);
+                if (!keyMatch) {
+                    kept.push(line);
+                    continue;
+                }
+                if (this._isSoundConfigKey(keyMatch[1])) {
+                    kept.push(line);
+                }
+            }
+            let output = kept.join(eol);
+            if (hadTrailingNewline && output && !/\r?\n$/.test(output)) output += eol;
+            return output;
+        }
+
+        _sanitizePersistentConfigToSoundOnly() {
+            if (!this.module || !this.module.FS) return false;
+            const FS = this.module.FS;
+            const cfgPath = this._getPreferredRuntimeConfigPath();
+            try {
+                if (!FS.analyzePath(cfgPath).exists) return false;
+                const currentText = String(FS.readFile(cfgPath, { encoding: "utf8" }) || "");
+                const sanitizedText = this._sanitizeConfigTextToSoundOnly(currentText);
+                if (sanitizedText === currentText) return false;
+                FS.writeFile(cfgPath, sanitizedText);
+                this._emitStatus("DOOM config sanitized: persisting sound settings only.", "info");
+                return true;
+            } catch (error) {
+                this._emitStatus("DOOM config sanitize failed: " + (error && error.message ? error.message : String(error)), "warn");
+                return false;
+            }
         }
 
         _resumeAudioContextBestEffort() {
@@ -287,6 +346,7 @@
             this._persistSyncInFlight = true;
             try {
                 this._requestRuntimeConfigSaveBestEffort();
+                this._sanitizePersistentConfigToSoundOnly();
                 await this._syncFs(false);
                 return true;
             } catch (error) {
@@ -910,13 +970,38 @@
             if (!this.isRunning() || !event) return false;
             if (typeof this.module.SDL === "undefined") {
                 return false;
+                if (globalScope.document) targets.push(globalScope.document);
             }
             try {
                 const targets = [];
-                if (globalScope.document) targets.push(globalScope.document);
                 if (globalScope) targets.push(globalScope);
                 if (this.outputCanvas) targets.push(this.outputCanvas);
                 const eventType = type === "up" ? "keyup" : "keydown";
+                const code = String(event.code || "");
+                const key = String(event.key || "");
+                const legacyKeyCodeMap = {
+                    Space: 32,
+                    ControlLeft: 17,
+                    ControlRight: 17,
+                    Control: 17,
+                    ShiftLeft: 16,
+                    ShiftRight: 16,
+                    Shift: 16,
+                    AltLeft: 18,
+                    AltRight: 18,
+                    Alt: 18,
+                    ArrowLeft: 37,
+                    ArrowUp: 38,
+                    ArrowRight: 39,
+                    ArrowDown: 40
+                };
+                let legacyKeyCode = Number(event.keyCode || event.which || 0);
+                if (!legacyKeyCode) {
+                    legacyKeyCode = legacyKeyCodeMap[code] || legacyKeyCodeMap[key] || 0;
+                    if (!legacyKeyCode && key && key.length === 1) {
+                        legacyKeyCode = key.toUpperCase().charCodeAt(0);
+                    }
+                }
                 const baseInit = {
                     key: event.key,
                     code: event.code,
@@ -925,12 +1010,18 @@
                     shiftKey: !!event.shiftKey,
                     metaKey: !!event.metaKey,
                     repeat: !!event.repeat,
+                    location: Number(event.location || 0),
                     bubbles: true,
                     cancelable: true
                 };
                 for (const target of targets) {
                     try {
                         const cloned = new KeyboardEvent(eventType, baseInit);
+                        // Some runtimes still consult legacy keyCode/which fields.
+                        if (legacyKeyCode > 0) {
+                            try { Object.defineProperty(cloned, "keyCode", { get: () => legacyKeyCode }); } catch (_e) {}
+                            try { Object.defineProperty(cloned, "which", { get: () => legacyKeyCode }); } catch (_e) {}
+                        }
                         target.dispatchEvent(cloned);
                     } catch (_e) {}
                 }
