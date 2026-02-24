@@ -117,7 +117,7 @@
       <div style="margin-top: 5px; font-size: 0.7em; color: white; border: 2px solid #4dabf74d; padding: 10px; text-align: center; border-radius: 10px;">
         Made by Spineraks and fariel. <br>
         The images displayed on this website are loaded directly from external sources and are not hosted or distributed by this site. <br>
-        Archipelago Logo © 2022 by Krista Corkos and Christopher Wilson is licensed under Attribution-NonCommercial 4.0 International. <br>
+        Archipelago Logo and screensaver SVG artwork © 2022 by Krista Corkos and Christopher Wilson are licensed under Attribution-NonCommercial 4.0 International (<a href="http://creativecommons.org/licenses/by-nc/4.0/" target="_blank" style="color: inherit;">CC BY-NC 4.0</a>). <br>
         Amazing artwork by le_becc.
       </div>
         
@@ -175,6 +175,19 @@
   </div>
 </div>
 
+<div id="runtimeModuleFileWizard" class="runtime-module-file-wizard" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="runtimeModuleFileWizardTitle">
+  <div class="runtime-module-file-wizard-card">
+    <div class="runtime-module-file-wizard-title" id="runtimeModuleFileWizardTitle">Module file setup</div>
+    <div class="runtime-module-file-wizard-subtitle" id="runtimeModuleFileWizardSubtitle"></div>
+    <div class="runtime-module-file-wizard-scroll" id="runtimeModuleFileWizardSlots"></div>
+    <div class="runtime-module-file-wizard-report" id="runtimeModuleFileWizardReport" style="display:none;"></div>
+    <div class="runtime-module-file-wizard-actions">
+      <button type="button" id="runtimeModuleFileWizardCancelBtn" class="drawer-btn">Cancel</button>
+      <button type="button" id="runtimeModuleFileWizardStartBtn" class="drawer-btn drawer-btn--primary" disabled>Start module</button>
+    </div>
+  </div>
+</div>
+
 <audio id="newItemSound">
   <source src="Sounds/p1.mp3" type="audio/mpeg">
   Your browser does not support the audio element.
@@ -215,7 +228,7 @@
     <li id="m13" style="background-color: #888888;" title="Marks the outline of a piece that can merge with another">Clue 💡✏️</li>
     <li id="m13b" style="background-color: #ff0000; " title="Change color of clue">🎨</li>
     <li id="m13c" style="background-color: #888888; " title="Remove all clues">🗑️</li>
-    <li id="mDoomStop" style="display: none; background-color: #7a1717;" title="Stop DOOM mode and restore previous puzzle media">Stop DOOM</li>
+    <li id="mModuleStop" style="display: none; background-color: #7a1717;" title="Stop active module mode and restore previous puzzle media">Stop Module</li>
     
     <br>
     <li id="m11a" style="background-color: #c58e3c; cursor: pointer;" title="Enable/disable zooming">🔍✅</li> 
@@ -551,7 +564,13 @@
   <script src="./src/core/PieceSetupQueue.js"></script>
   <script src="./src/core/HitTestService.js"></script>
   <script src="./src/render/RenderScheduler.js"></script>
-  <script src="./src/media/DoomRuntimeAdapter.js"></script>
+  <script src="./src/modules/contracts/RuntimeModuleContract.js"></script>
+  <script src="./src/modules/manifest.js"></script>
+  <script src="./src/modules/core/ModuleScriptLoader.js"></script>
+  <script src="./src/modules/core/ModuleRegistry.js"></script>
+  <script src="./src/modules/core/SecretCodeMatcher.js"></script>
+  <script src="./src/modules/core/ModuleKeyRouter.js"></script>
+  <script src="./src/modules/core/ModuleOrchestrator.js"></script>
   <script src="./src/media/MediaSourceAdapter.js"></script>
   <script src="./src/media/MediaBindings.js"></script>
   <script src="./src/render/canvas2d/CanvasRenderer.js"></script>

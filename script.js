@@ -2002,144 +2002,40 @@ let loadFile;
 let startWebcamSource;
 let startLinkCaptureSource;
 let mediaBindings = null;
-let doomRuntimeAdapter = null;
-let doomActivationInFlight = false;
-let doomStopInFlight = false;
-let doomWadInput = null;
-let doomRestoreMediaHint = null;
-const DOOM_SECRET_SEQUENCE = "hurtmeplenty";
-const DOOM_SEQUENCE_TIMEOUT_MS = 3000;
-const DOOM_SEQUENCE_EVENT_MARK = "__jigsawDoomSequenceHandled";
-let doomSequenceIndex = 0;
-let doomSequenceTimer = 0;
+let runtimeModuleOrchestrator = null;
+const RUNTIME_MODULE_SEQUENCE_EVENT_MARK = "__jigsawRuntimeModuleSequenceHandled";
+const runtimeModuleFileInputs = new Map();
+let runtimeModuleActivationWizardEls = null;
 
 var defaultImagePath = "https://images.pexels.com/photos/147411/italy-mountains-dawn-daybreak-147411.jpeg";
 var imagePath = "https://images.pexels.com/photos/147411/italy-mountains-dawn-daybreak-147411.jpeg";
 
 function isTextInputFocused() {
     const active = document.activeElement;
-    if (active && active.id === "doomWadFileInput") return false;
+    if (active && String(active.id || "").startsWith("runtimeModuleFileInput-")) return false;
     const tag = active && active.tagName;
     return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || !!(active && active.isContentEditable);
 }
 
-function isDoomModeActive() {
-    const rendererActive = !!(rendererFacade && rendererFacade.isDoomActive && rendererFacade.isDoomActive());
-    const runtimeActive = !!(doomRuntimeAdapter && doomRuntimeAdapter.isRunning && doomRuntimeAdapter.isRunning());
-    return rendererActive && runtimeActive;
+function getRuntimeModuleStopButton() {
+    return document.getElementById("mModuleStop");
 }
-window.isDoomModeActive = isDoomModeActive;
-
-function hasDoomKeyboardHooks() {
-    if (!doomRuntimeAdapter) return false;
-    const running = !!(doomRuntimeAdapter.isRunning && doomRuntimeAdapter.isRunning());
-    const resumable = !!(doomRuntimeAdapter.canResume && doomRuntimeAdapter.canResume());
-    return running || resumable;
-}
-
-function isFunctionKeyEvent(event) {
-    if (!event) return false;
-    const code = String(event.code || "");
-    const key = String(event.key || "");
-    return /^F\d{1,2}$/i.test(code) || /^F\d{1,2}$/i.test(key);
-}
-
-function isStandaloneModifierKey(event) {
-    const code = String((event && event.code) || "");
-    const key = String((event && event.key) || "");
-    return (
-        code === "ControlLeft" || code === "ControlRight" || code === "Control" ||
-        code === "AltLeft" || code === "AltRight" || code === "Alt" ||
-        code === "ShiftLeft" || code === "ShiftRight" || code === "Shift" ||
-        key === "Control" || key === "Alt" || key === "Shift"
-    );
-}
-
-function shouldForwardToDoom(event) {
-    if (!event || !isDoomModeActive()) return false;
-    if (event.isTrusted === false) return false;
-    if ((event.ctrlKey || event.altKey) && !isStandaloneModifierKey(event)) return false;
-    if (isTextInputFocused()) return false;
-    if (isFunctionKeyEvent(event)) return false;
-    if (event.metaKey) return false;
-    return true;
-}
-
-function isControlOrSpaceEvent(event) {
-    if (!event) return false;
-    const code = String(event.code || "");
-    const key = String(event.key || "");
-    return (
-        code === "ControlLeft" || code === "ControlRight" || code === "Control" ||
-        code === "Space" || key === " " || key === "Spacebar"
-    );
-}
-
-function getDoomStopButton() {
-    return document.getElementById("mDoomStop");
-}
-
-function refreshDoomUi() {
-    const btn = getDoomStopButton();
-    if (!btn) return;
-    const active = !!(rendererFacade && rendererFacade.isDoomActive && rendererFacade.isDoomActive());
-    btn.style.display = active ? "inline-block" : "none";
-}
-
-function getDoomConfig() {
-    const cfg = window.jigsawDoomConfig || {};
-    const resolveUrl = (relativePath) => {
-        try {
-            return new URL(relativePath, (typeof location !== "undefined" ? location.href : undefined)).toString();
-        } catch (_e) {
-            return relativePath;
-        }
-    };
-    return {
-        loaderUrl: cfg.loaderUrl || resolveUrl("./src/doom/doomgeneric.js"),
-        wasmUrl: cfg.wasmUrl || resolveUrl("./src/doom/doomgeneric.wasm"),
-        factoryName: cfg.factoryName || "createDoomGenericModule",
-        canvasWidth: cfg.canvasWidth || 320,
-        canvasHeight: cfg.canvasHeight || 200,
-        launchArgs: Array.isArray(cfg.launchArgs) ? cfg.launchArgs : []
-    };
-}
-
-function getOrCreateDoomAdapter() {
-    if (doomRuntimeAdapter) return doomRuntimeAdapter;
-    if (!window.JigsawDoomRuntimeAdapter) {
-        throw new Error("Doom runtime adapter is not available");
-    }
-    doomRuntimeAdapter = new window.JigsawDoomRuntimeAdapter({
-        ...getDoomConfig(),
-        onStatus: (status) => {
-            if (!status || !status.message) return;
-            if (status.level === "error") console.error("[DOOM]", status.message);
-            else console.log("[DOOM]", status.message);
-        },
-        onExit: (_payload) => {
-            stopDoomMode("runtime-exit").catch((error) => {
-                console.error("[DOOM] failed to stop after runtime exit", error);
-            });
-        }
-    });
-    return doomRuntimeAdapter;
-}
-
-function getOrCreateDoomWadInput() {
-    if (doomWadInput) return doomWadInput;
+function getOrCreateRuntimeModuleFileInput(options = null) {
+    const id = (options && options.id) ? String(options.id) : "runtimeModuleFileInput";
+    if (runtimeModuleFileInputs.has(id)) return runtimeModuleFileInputs.get(id);
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = ".wad,application/octet-stream";
+    input.accept = (options && options.accept) ? String(options.accept) : "*/*";
     input.style.display = "none";
-    input.id = "doomWadFileInput";
+    input.id = id;
     document.body.appendChild(input);
-    doomWadInput = input;
-    return doomWadInput;
+    runtimeModuleFileInputs.set(id, input);
+    return input;
 }
 
-function requestDoomWadFile() {
-    const input = getOrCreateDoomWadInput();
+function requestRuntimeModuleFile(options = null) {
+    const input = getOrCreateRuntimeModuleFileInput(options);
+    if (options && options.accept) input.accept = String(options.accept);
     input.value = "";
     return new Promise((resolve) => {
         let settled = false;
@@ -2149,7 +2045,7 @@ function requestDoomWadFile() {
             try { input.blur(); } catch (_e) {}
             try {
                 const active = document.activeElement;
-                if (active && active.id === "doomWadFileInput" && document.body && typeof document.body.focus === "function") {
+                if (active && active.id === input.id && document.body && typeof document.body.focus === "function") {
                     document.body.focus();
                 }
             } catch (_e) {}
@@ -2171,157 +2067,374 @@ function requestDoomWadFile() {
         };
         input.addEventListener("change", onChange, { once: true });
         window.addEventListener("focus", onWindowFocus, true);
+        if (options && options.promptText) {
+            try { console.log("[MODULE] " + String(options.promptText)); } catch (_e) {}
+        }
         input.click();
     });
 }
 
-async function startDoomModeWithWad(wadFile) {
-    if (!rendererFacade || !rendererFacade.setDoomSource) {
-        throw new Error("Renderer facade is unavailable");
-    }
-    doomRestoreMediaHint = {
-        imagePath: imagePath || "",
-        timestamp: Date.now()
-    };
-    const adapter = getOrCreateDoomAdapter();
-    await adapter.start(wadFile || null);
-    const ok = rendererFacade.setDoomSource(adapter, adapter.getFrameSource ? adapter.getFrameSource() : null);
-    if (!ok) throw new Error("Failed to bind DOOM source");
-    refreshDoomUi();
-    return true;
+function getRuntimeModuleActivationWizardElements() {
+    if (runtimeModuleActivationWizardEls) return runtimeModuleActivationWizardEls;
+    const root = document.getElementById("runtimeModuleFileWizard");
+    const title = document.getElementById("runtimeModuleFileWizardTitle");
+    const subtitle = document.getElementById("runtimeModuleFileWizardSubtitle");
+    const slots = document.getElementById("runtimeModuleFileWizardSlots");
+    const report = document.getElementById("runtimeModuleFileWizardReport");
+    const cancelBtn = document.getElementById("runtimeModuleFileWizardCancelBtn");
+    const startBtn = document.getElementById("runtimeModuleFileWizardStartBtn");
+    if (!root || !title || !subtitle || !slots || !report || !cancelBtn || !startBtn) return null;
+    runtimeModuleActivationWizardEls = { root, title, subtitle, slots, report, cancelBtn, startBtn };
+    return runtimeModuleActivationWizardEls;
 }
 
-async function stopDoomMode(reason = "manual") {
-    if (doomStopInFlight) return;
-    doomStopInFlight = true;
-    try {
-        if (rendererFacade && rendererFacade.clearDoomSource) {
-            rendererFacade.clearDoomSource(true);
-        }
-        if (doomRuntimeAdapter && doomRuntimeAdapter.stop) {
-            await doomRuntimeAdapter.stop();
-        }
-        const frameSource = (rendererFacade && rendererFacade.media && rendererFacade.media.getFrameSource)
-            ? rendererFacade.media.getFrameSource()
-            : null;
-        const restorePath = (doomRestoreMediaHint && doomRestoreMediaHint.imagePath) ? doomRestoreMediaHint.imagePath : imagePath;
-        if (!frameSource && restorePath && typeof setImagePath === "function") {
-            try {
-                setImagePath(restorePath, { forceMediaKind: "image", preserveVideo: false });
-            } catch (_e) {}
-        }
-        // After switching away from DOOM, static sources (image mode) do not
-        // naturally produce "new frames", so force a one-shot redraw of gameCanvas.
-        if (puzzle && typeof puzzle.applyMediaFrame === "function" && frameSource) {
-            try {
-                const nowMs = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
-                puzzle.applyMediaFrame(frameSource, nowMs);
-            } catch (_e) {}
-        }
-        if (rendererFacade && rendererFacade.sceneState && rendererFacade.sceneState.markAllDirty) {
-            rendererFacade.sceneState.markAllDirty();
-        }
-        if (rendererFacade && rendererFacade.renderDirtyPieces) {
-            rendererFacade.renderDirtyPieces();
-        }
-        doomRestoreMediaHint = null;
-        if (reason) {
-            console.log("[DOOM] mode stopped:", reason);
-        }
-        refreshDoomUi();
-    } finally {
-        doomStopInFlight = false;
-    }
+function normalizeRuntimeModuleWizardFiles(files) {
+    const list = Array.isArray(files) ? files : [];
+    return list.map((slot, idx) => {
+        const raw = slot || {};
+        const id = String(raw.id || ("runtimeModuleFileInput-runtime-file-" + (idx + 1))).trim();
+        const role = String(raw.role || id || ("file" + (idx + 1))).trim();
+        const label = String(raw.label || role.toUpperCase()).trim();
+        return {
+            id: id,
+            role: role,
+            label: label,
+            description: String(raw.description || raw.promptText || "").trim(),
+            required: raw.required !== false,
+            accept: String(raw.accept || "*/*").trim(),
+            promptText: String(raw.promptText || "").trim()
+        };
+    }).filter((x) => !!x.id);
 }
-window.stopDoomMode = stopDoomMode;
 
-async function activateDoomFromSecretSequence() {
-    if (doomActivationInFlight) {
-        return;
-    }
-    doomActivationInFlight = true;
-    try {
-        const adapter = getOrCreateDoomAdapter();
-        if (adapter && adapter.canResume && adapter.canResume()) {
-            await startDoomModeWithWad(null);
-        } else {
-            const wadFile = await requestDoomWadFile();
-            if (!wadFile) return;
-            await startDoomModeWithWad(wadFile);
+function getRuntimeModuleWizardFocusable(root) {
+    return Array.from(root.querySelectorAll(
+        "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])"
+    )).filter((el) => !!el && el.offsetParent !== null);
+}
+
+function requestRuntimeModuleActivationFiles(options = null) {
+    const cfg = options || {};
+    const files = normalizeRuntimeModuleWizardFiles(cfg.files || []);
+    if (!files.length) return Promise.resolve({});
+    const ui = getRuntimeModuleActivationWizardElements();
+    if (!ui) throw new Error("Runtime module file wizard UI is unavailable");
+    return new Promise((resolve) => {
+        const selectedById = new Map();
+        const slotUiById = new Map();
+        const previousActive = document.activeElement || null;
+        const moduleLabel = String(cfg.moduleLabel || cfg.moduleId || "Module");
+        let warningAcknowledged = false;
+        let warningSignature = "";
+        let settled = false;
+
+        const settle = (value) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            resolve(value);
+        };
+        const updateStartState = () => {
+            const missingRequired = files.some((slot) => slot.required && !selectedById.get(slot.id));
+            ui.startBtn.disabled = missingRequired;
+        };
+        const resetWarningAcknowledgement = () => {
+            warningAcknowledged = false;
+            warningSignature = "";
+            ui.startBtn.textContent = "Start module";
+        };
+        const clearReport = () => {
+            ui.report.style.display = "none";
+            ui.report.classList.remove("runtime-module-file-wizard-report--error", "runtime-module-file-wizard-report--warn");
+            ui.report.innerHTML = "";
+        };
+        const showReport = (title, items, kind = "warn") => {
+            const listItems = Array.isArray(items) ? items.filter(Boolean).map((x) => String(x)) : [];
+            if (!listItems.length) {
+                clearReport();
+                return;
+            }
+            ui.report.innerHTML = "";
+            ui.report.style.display = "grid";
+            ui.report.classList.remove("runtime-module-file-wizard-report--error", "runtime-module-file-wizard-report--warn");
+            ui.report.classList.add(kind === "error" ? "runtime-module-file-wizard-report--error" : "runtime-module-file-wizard-report--warn");
+            const reportTitle = document.createElement("div");
+            reportTitle.className = "runtime-module-file-wizard-report-title";
+            reportTitle.textContent = String(title || "");
+            const list = document.createElement("ul");
+            list.className = "runtime-module-file-wizard-report-list";
+            for (const item of listItems) {
+                const li = document.createElement("li");
+                li.textContent = item;
+                list.appendChild(li);
+            }
+            ui.report.appendChild(reportTitle);
+            ui.report.appendChild(list);
+        };
+        const updateSlotView = (slot) => {
+            const bundle = slotUiById.get(slot.id);
+            if (!bundle) return;
+            const file = selectedById.get(slot.id) || null;
+            bundle.fileName.textContent = file ? String(file.name || "unnamed") : "No file selected";
+            bundle.fileName.classList.toggle("runtime-module-file-wizard-slot-file--empty", !file);
+            bundle.chooseBtn.textContent = file ? "Replace file" : "Choose file";
+            bundle.clearBtn.disabled = !file;
+            clearReport();
+            resetWarningAcknowledgement();
+            updateStartState();
+        };
+
+        ui.title.textContent = moduleLabel + " file setup";
+        ui.subtitle.textContent = "Choose all required files, then start the module.";
+        ui.slots.innerHTML = "";
+        clearReport();
+        resetWarningAcknowledgement();
+
+        for (const slot of files) {
+            const card = document.createElement("section");
+            card.className = "runtime-module-file-wizard-slot";
+
+            const header = document.createElement("div");
+            header.className = "runtime-module-file-wizard-slot-header";
+
+            const label = document.createElement("div");
+            label.className = "runtime-module-file-wizard-slot-label";
+            label.textContent = slot.label;
+
+            const badge = document.createElement("span");
+            badge.className = "runtime-module-file-wizard-slot-badge " + (slot.required
+                ? "runtime-module-file-wizard-slot-badge--required"
+                : "runtime-module-file-wizard-slot-badge--optional");
+            badge.textContent = slot.required ? "required" : "optional";
+
+            header.appendChild(label);
+            header.appendChild(badge);
+            card.appendChild(header);
+
+            if (slot.description) {
+                const description = document.createElement("div");
+                description.className = "runtime-module-file-wizard-slot-description";
+                description.textContent = slot.description;
+                card.appendChild(description);
+            }
+
+            const fileName = document.createElement("div");
+            fileName.className = "runtime-module-file-wizard-slot-file runtime-module-file-wizard-slot-file--empty";
+            fileName.textContent = "No file selected";
+            card.appendChild(fileName);
+
+            const actions = document.createElement("div");
+            actions.className = "runtime-module-file-wizard-slot-actions";
+
+            const chooseBtn = document.createElement("button");
+            chooseBtn.type = "button";
+            chooseBtn.className = "drawer-btn drawer-btn--primary";
+            chooseBtn.textContent = "Choose file";
+
+            const clearBtn = document.createElement("button");
+            clearBtn.type = "button";
+            clearBtn.className = "drawer-btn";
+            clearBtn.textContent = "Clear";
+            clearBtn.disabled = true;
+
+            chooseBtn.addEventListener("click", () => {
+                if (slot.promptText) {
+                    try { console.log("[MODULE] " + slot.promptText); } catch (_e) {}
+                }
+                const input = getOrCreateRuntimeModuleFileInput({ id: slot.id, accept: slot.accept });
+                input.accept = slot.accept || "*/*";
+                input.value = "";
+                const onChange = () => {
+                    input.removeEventListener("change", onChange);
+                    const next = input.files && input.files[0] ? input.files[0] : null;
+                    if (next) selectedById.set(slot.id, next);
+                    updateSlotView(slot);
+                };
+                input.addEventListener("change", onChange, { once: true });
+                input.click();
+            });
+            clearBtn.addEventListener("click", () => {
+                selectedById.delete(slot.id);
+                updateSlotView(slot);
+            });
+
+            actions.appendChild(chooseBtn);
+            actions.appendChild(clearBtn);
+            card.appendChild(actions);
+            ui.slots.appendChild(card);
+            slotUiById.set(slot.id, { fileName, chooseBtn, clearBtn });
+            updateSlotView(slot);
         }
+
+        const onCancel = () => settle(null);
+        const onStart = () => {
+            const payload = {};
+            for (const slot of files) {
+                const value = selectedById.get(slot.id);
+                if (!value) continue;
+                const key = String(slot.role || slot.id || "").trim();
+                if (!key) continue;
+                payload[key] = value;
+            }
+            const runStartFlow = async () => {
+                if (typeof cfg.validateSelection === "function") {
+                    const result = await cfg.validateSelection(payload);
+                    const errors = result && Array.isArray(result.errors) ? result.errors : [];
+                    const warnings = result && Array.isArray(result.warnings) ? result.warnings : [];
+                    if (errors.length > 0) {
+                        showReport("Compatibility check failed", errors, "error");
+                        resetWarningAcknowledgement();
+                        return;
+                    }
+                    if (warnings.length > 0) {
+                        showReport("Compatibility warnings", warnings, "warn");
+                        const nextSignature = warnings.join("\n");
+                        if (!warningAcknowledged || warningSignature !== nextSignature) {
+                            warningAcknowledged = true;
+                            warningSignature = nextSignature;
+                            ui.startBtn.textContent = "Start anyway";
+                            return;
+                        }
+                    } else {
+                        clearReport();
+                        resetWarningAcknowledgement();
+                    }
+                }
+                settle(payload);
+            };
+            runStartFlow().catch((error) => {
+                const msg = error && error.message ? error.message : "Compatibility check failed unexpectedly.";
+                showReport("Compatibility check failed", [msg], "error");
+                resetWarningAcknowledgement();
+            });
+        };
+        const onOverlayClick = (event) => {
+            if (event && event.target === ui.root) onCancel();
+        };
+        const onKeyDown = (event) => {
+            if (!event) return;
+            if (event.key === "Escape") {
+                event.preventDefault();
+                onCancel();
+                return;
+            }
+            if (event.key !== "Tab") return;
+            const focusable = getRuntimeModuleWizardFocusable(ui.root);
+            if (!focusable.length) return;
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first.focus();
+            }
+        };
+        const cleanup = () => {
+            ui.cancelBtn.removeEventListener("click", onCancel);
+            ui.startBtn.removeEventListener("click", onStart);
+            ui.root.removeEventListener("click", onOverlayClick);
+            ui.root.removeEventListener("keydown", onKeyDown, true);
+            ui.root.style.display = "none";
+            ui.root.setAttribute("aria-hidden", "true");
+            ui.slots.innerHTML = "";
+            clearReport();
+            resetWarningAcknowledgement();
+            ui.startBtn.disabled = true;
+            if (previousActive && typeof previousActive.focus === "function") {
+                try { previousActive.focus(); } catch (_e) {}
+            }
+        };
+
+        ui.cancelBtn.addEventListener("click", onCancel);
+        ui.startBtn.addEventListener("click", onStart);
+        ui.root.addEventListener("click", onOverlayClick);
+        ui.root.addEventListener("keydown", onKeyDown, true);
+        ui.root.style.display = "flex";
+        ui.root.setAttribute("aria-hidden", "false");
+        updateStartState();
+        const focusTarget = ui.startBtn.disabled ? ui.cancelBtn : ui.startBtn;
+        try { focusTarget.focus(); } catch (_e) {}
+    });
+}
+
+function getOrCreateRuntimeModuleOrchestrator() {
+    if (runtimeModuleOrchestrator) return runtimeModuleOrchestrator;
+    if (!window.JigsawModuleOrchestrator) {
+        throw new Error("Runtime module orchestrator is unavailable");
+    }
+    runtimeModuleOrchestrator = new window.JigsawModuleOrchestrator({
+        getRendererFacade: () => rendererFacade,
+        getMediaBindings: () => mediaBindings,
+        getPuzzle: () => puzzle,
+        getImagePath: () => imagePath,
+        setImagePath: (path, options = {}) => {
+            if (typeof setImagePath === "function") setImagePath(path, options);
+        },
+        getStopButton: getRuntimeModuleStopButton,
+        requestFile: requestRuntimeModuleFile,
+        requestActivationFiles: requestRuntimeModuleActivationFiles,
+        isTextInputFocused: isTextInputFocused,
+        isGameplayStarted: () => !!window.gameplayStarted,
+        logger: (message, level = "info") => {
+            if (level === "error") console.error("[MODULE]", message);
+            else console.log("[MODULE]", message);
+        }
+    });
+    const manifest = Array.isArray(window.JigsawRuntimeModulesManifest) ? window.JigsawRuntimeModulesManifest : [];
+    runtimeModuleOrchestrator.registerAll(manifest);
+    return runtimeModuleOrchestrator;
+}
+
+function registerRuntimeModules() {
+    try {
+        getOrCreateRuntimeModuleOrchestrator().registerAll(Array.isArray(window.JigsawRuntimeModulesManifest) ? window.JigsawRuntimeModulesManifest : []);
     } catch (error) {
-        const message = error && error.message ? error.message : "Failed to start DOOM mode.";
-        console.error("[DOOM] activation failed", error);
-        const lower = String(message || "").toLowerCase();
-        const likelyConfigIssue = (
-            lower.includes("loader") ||
-            lower.includes("wasm") ||
-            lower.includes("factory") ||
-            lower.includes("runtime module is missing expected apis")
-        );
-        if (likelyConfigIssue) {
-            alert(message + " Configure window.jigsawDoomConfig.loaderUrl/wasmUrl if needed.");
-        } else {
+        console.error("[MODULE] failed to register runtime modules", error);
+    }
+}
+
+function isRuntimeModuleModeActive() {
+    try {
+        const orchestrator = getOrCreateRuntimeModuleOrchestrator();
+        return !!(orchestrator && orchestrator.isModuleActive && orchestrator.isModuleActive());
+    } catch (_e) {
+        return false;
+    }
+}
+window.isRuntimeModuleModeActive = isRuntimeModuleModeActive;
+
+function refreshRuntimeModuleUi() {
+    try {
+        getOrCreateRuntimeModuleOrchestrator().refreshStopButton();
+    } catch (_e) {}
+}
+
+async function stopRuntimeModuleMode(reason = "manual") {
+    try {
+        const orchestrator = getOrCreateRuntimeModuleOrchestrator();
+        await orchestrator.stopActive(reason);
+    } catch (error) {
+        console.error("[MODULE] failed to stop active module", error);
+    }
+}
+window.stopRuntimeModuleMode = stopRuntimeModuleMode;
+
+function processRuntimeModuleSecretSequenceEvent(event) {
+    if (!event) return;
+    if (event[RUNTIME_MODULE_SEQUENCE_EVENT_MARK]) return;
+    event[RUNTIME_MODULE_SEQUENCE_EVENT_MARK] = true;
+    try {
+        const orchestrator = getOrCreateRuntimeModuleOrchestrator();
+        orchestrator.activateBySecretCodeEvent(event).catch((error) => {
+            const message = error && error.message ? error.message : "Failed to start runtime module mode.";
+            console.error("[MODULE] activation failed", error);
             alert(message);
-        }
-    } finally {
-        doomActivationInFlight = false;
+        });
+    } catch (error) {
+        console.error("[MODULE] activation failed", error);
     }
-}
-
-function resetDoomSequence() {
-    doomSequenceIndex = 0;
-    if (doomSequenceTimer) {
-        clearTimeout(doomSequenceTimer);
-        doomSequenceTimer = 0;
-    }
-}
-
-function scheduleDoomSequenceReset() {
-    if (doomSequenceTimer) clearTimeout(doomSequenceTimer);
-    doomSequenceTimer = setTimeout(() => {
-        doomSequenceIndex = 0;
-        doomSequenceTimer = 0;
-    }, DOOM_SEQUENCE_TIMEOUT_MS);
-}
-
-function handleDoomSecretSequence(event) {
-    const running = !!(doomRuntimeAdapter && doomRuntimeAdapter.isRunning && doomRuntimeAdapter.isRunning());
-    if (running) return;
-    if (!window.gameplayStarted) {
-        resetDoomSequence();
-        return;
-    }
-    if (!event) return;
-    if (event.ctrlKey || event.metaKey || event.altKey) {
-        resetDoomSequence();
-        return;
-    }
-    const key = (typeof event.key === "string" && event.key.length === 1) ? event.key.toLowerCase() : "";
-    if (!key) {
-        resetDoomSequence();
-        return;
-    }
-    const expected = DOOM_SECRET_SEQUENCE.charAt(doomSequenceIndex);
-    if (key === expected) {
-        doomSequenceIndex += 1;
-    } else {
-        doomSequenceIndex = key === DOOM_SECRET_SEQUENCE.charAt(0) ? 1 : 0;
-    }
-    if (doomSequenceIndex >= DOOM_SECRET_SEQUENCE.length) {
-        event.preventDefault();
-        resetDoomSequence();
-        activateDoomFromSecretSequence();
-        return;
-    }
-    if (doomSequenceIndex > 0) scheduleDoomSequenceReset();
-}
-
-function processDoomSecretSequenceEvent(event) {
-    if (!event) return;
-    if (event[DOOM_SEQUENCE_EVENT_MARK]) return;
-    event[DOOM_SEQUENCE_EVENT_MARK] = true;
-    handleDoomSecretSequence(event);
 }
 
 function loadInitialFile() {
@@ -2947,6 +3060,7 @@ document.addEventListener("gestureend", preventZoomWhileHoldingPiece, { passive:
 
 
             case 19:  // process save file and start game
+                registerRuntimeModules();
                 window.useCanonicalAspectForLayout = true;
                 let coordinates = {}
                 let groups = {}
@@ -4154,56 +4268,68 @@ function rotateCurrentPiece(counter = false){
 }
 
 window.addEventListener('keydown', function(event) {
-    processDoomSecretSequenceEvent(event);
+    processRuntimeModuleSecretSequenceEvent(event);
 }, true);
 
 document.addEventListener('keydown', function(event) {
-    processDoomSecretSequenceEvent(event);
+    processRuntimeModuleSecretSequenceEvent(event);
 }, true);
 
 document.addEventListener('keydown', function(event) {
     if(event.key === 'R' || event.key === 'r' || event.key === ' '){
-        if (isDoomModeActive()) return;
+        if (isRuntimeModuleModeActive()) return;
         rotateCurrentPiece();
     }
 });
 
 document.addEventListener("keydown", function(event) {
-    if (!hasDoomKeyboardHooks()) return;
-    if (!isFunctionKeyEvent(event)) return;
+    let shouldConsume = false;
+    try {
+        shouldConsume = !!getOrCreateRuntimeModuleOrchestrator().shouldConsumeFunctionKey(event);
+    } catch (_e) {}
+    if (!shouldConsume) return;
     event.stopPropagation();
     event.stopImmediatePropagation();
 }, true);
 
 document.addEventListener("keyup", function(event) {
-    if (!hasDoomKeyboardHooks()) return;
-    if (!isFunctionKeyEvent(event)) return;
+    let shouldConsume = false;
+    try {
+        shouldConsume = !!getOrCreateRuntimeModuleOrchestrator().shouldConsumeFunctionKey(event);
+    } catch (_e) {}
+    if (!shouldConsume) return;
     event.stopPropagation();
     event.stopImmediatePropagation();
 }, true);
 
 window.addEventListener("keydown", function(event) {
-    if (!hasDoomKeyboardHooks()) return;
-    if (!isFunctionKeyEvent(event)) return;
+    let shouldConsume = false;
+    try {
+        shouldConsume = !!getOrCreateRuntimeModuleOrchestrator().shouldConsumeFunctionKey(event);
+    } catch (_e) {}
+    if (!shouldConsume) return;
     event.stopPropagation();
 }, true);
 
 window.addEventListener("keyup", function(event) {
-    if (!hasDoomKeyboardHooks()) return;
-    if (!isFunctionKeyEvent(event)) return;
+    let shouldConsume = false;
+    try {
+        shouldConsume = !!getOrCreateRuntimeModuleOrchestrator().shouldConsumeFunctionKey(event);
+    } catch (_e) {}
+    if (!shouldConsume) return;
     event.stopPropagation();
 }, true);
 
 document.addEventListener("keydown", function(event) {
-    if (!shouldForwardToDoom(event)) return;
-    doomRuntimeAdapter.sendKeyEvent(event, "down");
-    if (!isControlOrSpaceEvent(event) && event.cancelable) event.preventDefault();
+    try {
+        getOrCreateRuntimeModuleOrchestrator().routeKeyEvent(event, "down");
+    } catch (_e) {}
 }, true);
 
 document.addEventListener("keyup", function(event) {
-    if (!shouldForwardToDoom(event)) return;
-    doomRuntimeAdapter.sendKeyEvent(event, "up");
-    if (!isControlOrSpaceEvent(event) && event.cancelable) event.preventDefault();
+    try {
+        getOrCreateRuntimeModuleOrchestrator().routeKeyEvent(event, "up");
+    } catch (_e) {}
 }, true);
 
 
@@ -4269,15 +4395,15 @@ function withdraw(numToWithdraw){
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-    const doomStopBtn = getDoomStopButton();
-    if (doomStopBtn) {
-        doomStopBtn.addEventListener("click", () => {
-            stopDoomMode().catch((error) => {
-                console.error("[DOOM] failed to stop", error);
+    const moduleStopBtn = getRuntimeModuleStopButton();
+    if (moduleStopBtn) {
+        moduleStopBtn.addEventListener("click", () => {
+            stopRuntimeModuleMode().catch((error) => {
+                console.error("[MODULE] failed to stop", error);
             });
         });
     }
-    refreshDoomUi();
+    refreshRuntimeModuleUi();
 
     const btnWithdraw = document.getElementById('btnWithdraw');
     const btnWithdrawAll = document.getElementById('btnWithdrawAll');

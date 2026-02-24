@@ -1,13 +1,46 @@
 "use strict";
 
 (function initDoomRuntimeAdapter(globalScope) {
+    /**
+     * User-friendly runtime defaults for DOOM.
+     *
+     * If you are integrating via the module manifest, prefer overriding these
+     * through that manifest entry instead of editing runtime internals.
+     */
+    const DOOM_RUNTIME_DEFAULTS = Object.freeze({
+        loaderUrl: "",
+        wasmUrl: "",
+        factoryName: "createDoomGenericModule",
+        canvasWidth: 320,
+        canvasHeight: 200,
+        launchArgs: [],
+        loaderTimeoutMs: 20000,
+        runtimeTimeoutMs: 30000,
+        persistAutoSyncMs: 2000
+    });
+
+    /**
+     * @param {{
+     *   loaderUrl?: string,
+     *   wasmUrl?: string,
+     *   factoryName?: string,
+     *   canvasWidth?: number,
+     *   canvasHeight?: number,
+     *   launchArgs?: string[],
+     *   onStatus?: ((payload:{message:string,level:string})=>void)|null,
+     *   onExit?: ((payload:{reason:string,detail:Object|null})=>void)|null,
+     *   loaderTimeoutMs?: number,
+     *   runtimeTimeoutMs?: number,
+     *   persistAutoSyncMs?: number
+     * }} options
+     */
     class DoomRuntimeAdapter {
         constructor(options = {}) {
-            this.loaderUrl = options.loaderUrl || "";
-            this.wasmUrl = options.wasmUrl || "";
-            this.factoryName = options.factoryName || "createDoomGenericModule";
-            this.canvasWidth = options.canvasWidth || 320;
-            this.canvasHeight = options.canvasHeight || 200;
+            this.loaderUrl = options.loaderUrl || DOOM_RUNTIME_DEFAULTS.loaderUrl;
+            this.wasmUrl = options.wasmUrl || DOOM_RUNTIME_DEFAULTS.wasmUrl;
+            this.factoryName = options.factoryName || DOOM_RUNTIME_DEFAULTS.factoryName;
+            this.canvasWidth = options.canvasWidth || DOOM_RUNTIME_DEFAULTS.canvasWidth;
+            this.canvasHeight = options.canvasHeight || DOOM_RUNTIME_DEFAULTS.canvasHeight;
             this.launchArgs = Array.isArray(options.launchArgs) ? options.launchArgs.slice() : [];
             this.onStatus = typeof options.onStatus === "function" ? options.onStatus : null;
             this.onExit = typeof options.onExit === "function" ? options.onExit : null;
@@ -19,11 +52,12 @@
             this.lastFrameVersionDelivered = 0;
             this._rafHandle = 0;
             this._loaderPromise = null;
-            this._mountedWadPath = "";
+            this._mountedIwadPath = "";
+            this._mountedPwadPath = "";
             this._moduleKind = "";
             this._runtimeReadyResolve = null;
-            this.loaderTimeoutMs = Math.max(1000, Number(options.loaderTimeoutMs) || 20000);
-            this.runtimeTimeoutMs = Math.max(1000, Number(options.runtimeTimeoutMs) || 30000);
+            this.loaderTimeoutMs = Math.max(1000, Number(options.loaderTimeoutMs) || DOOM_RUNTIME_DEFAULTS.loaderTimeoutMs);
+            this.runtimeTimeoutMs = Math.max(1000, Number(options.runtimeTimeoutMs) || DOOM_RUNTIME_DEFAULTS.runtimeTimeoutMs);
             this.lastWadInfo = null;
             this._runtimeExitNotified = false;
             this._titleBeforeStart = "";
@@ -36,15 +70,17 @@
             this._runtimeRejectionHandler = null;
             this._suppressRuntimeErrorsUntil = 0;
             this._runtimeGuardCleanupTimer = 0;
-            this._cachedWadBytes = null;
-            this._cachedWadName = "";
+            this._cachedIwadBytes = null;
+            this._cachedIwadName = "";
+            this._cachedPwadBytes = null;
+            this._cachedPwadName = "";
             this._resumePoisoned = false;
             this._persistMountPath = "/jigsaw_persist";
             this._persistentMounted = false;
             this._persistConfigPath = this._persistMountPath + "/default.cfg";
             this._persistAutoSyncTimer = 0;
             this._persistSyncInFlight = false;
-            this._persistAutoSyncMs = Math.max(1000, Number(options.persistAutoSyncMs) || 2000);
+            this._persistAutoSyncMs = Math.max(1000, Number(options.persistAutoSyncMs) || DOOM_RUNTIME_DEFAULTS.persistAutoSyncMs);
         }
 
         _emitStatus(message, level = "info") {
@@ -182,8 +218,19 @@
         }
 
         async _ensurePersistentStorageMounted() {
-            if (this._persistentMounted) return true;
-            if (!this.module || !this.module.FS) return false;
+            if (!this.module || !this.module.FS) {
+                this._persistentMounted = false;
+                return false;
+            }
+            // Factory-based restarts recreate Module/FS. If we retained a stale
+            // "mounted" flag from a previous instance, force remount/sync now.
+            if (this._persistentMounted) {
+                try {
+                    const analyzed = this.module.FS.analyzePath(this._persistMountPath);
+                    if (analyzed && analyzed.exists) return true;
+                } catch (_e) {}
+                this._persistentMounted = false;
+            }
             const FS = this.module.FS;
             const idbfsCandidate = this.module.IDBFS || (FS.filesystems && FS.filesystems.IDBFS) || globalScope.IDBFS;
             const hasUsableIdbfs = !!(
@@ -297,7 +344,6 @@
                 const sanitizedText = this._sanitizeConfigTextToSoundOnly(currentText);
                 if (sanitizedText === currentText) return false;
                 FS.writeFile(cfgPath, sanitizedText);
-                this._emitStatus("DOOM config sanitized: persisting sound settings only.", "info");
                 return true;
             } catch (error) {
                 this._emitStatus("DOOM config sanitize failed: " + (error && error.message ? error.message : String(error)), "warn");
@@ -383,7 +429,32 @@
             return out;
         }
 
-        _parseAndValidateWad(bytes) {
+        _extractRequestedWadFiles(payload) {
+            if (!payload) {
+                return { iwadFile: null, pwadFile: null, explicitPayload: false };
+            }
+            if (payload instanceof File) {
+                return { iwadFile: payload, pwadFile: null, explicitPayload: false };
+            }
+            if (typeof payload !== "object") {
+                throw new Error("invalid wad payload");
+            }
+            const iwadFile = payload.iwad || payload.file || null;
+            const pwadFile = payload.pwad || payload.patch || null;
+            if (iwadFile && !(iwadFile instanceof File)) throw new Error("invalid iwad file");
+            if (pwadFile && !(pwadFile instanceof File)) throw new Error("invalid pwad file");
+            return { iwadFile: iwadFile || null, pwadFile: pwadFile || null, explicitPayload: true };
+        }
+
+        _isEpisodeStyleMapName(name) {
+            return /^E[1-9]M[1-9]$/.test(String(name || "").toUpperCase());
+        }
+
+        _isMapStyleMapName(name) {
+            return /^MAP[0-9][0-9]$/.test(String(name || "").toUpperCase());
+        }
+
+        _analyzeWad(bytes, expectedType = "") {
             if (!bytes || bytes.length < 12) {
                 throw new Error("selected file is not a valid WAD (too small)");
             }
@@ -405,29 +476,156 @@
                 throw new Error("WAD directory extends past end of file");
             }
             const lumpNames = new Set();
+            const lumpNameList = [];
+            const lumpEntries = [];
+            let episodeStyleMapCount = 0;
+            let mapStyleMapCount = 0;
+            let invalidLumpCount = 0;
             for (let i = 0; i < lumpCount; i++) {
+                const lumpOffset = dirOffset + i * 16;
+                const lumpFilePos = view.getInt32(lumpOffset, true);
+                const lumpSize = view.getInt32(lumpOffset + 4, true);
                 const name = this._readWadAscii(bytes, dirOffset + i * 16 + 8, 8).toUpperCase();
-                if (name) lumpNames.add(name);
+                if (name) {
+                    lumpNames.add(name);
+                    lumpNameList.push(name);
+                    if (this._isEpisodeStyleMapName(name)) episodeStyleMapCount++;
+                    if (this._isMapStyleMapName(name)) mapStyleMapCount++;
+                }
+                const entry = {
+                    index: i,
+                    name: name || "",
+                    filePos: lumpFilePos,
+                    size: lumpSize
+                };
+                if (!Number.isFinite(lumpFilePos) || !Number.isFinite(lumpSize) || lumpFilePos < 0 || lumpSize < 0 || (lumpFilePos + lumpSize) > bytes.length) {
+                    entry.invalidBounds = true;
+                    invalidLumpCount++;
+                } else {
+                    entry.invalidBounds = false;
+                }
+                lumpEntries.push(entry);
+            }
+            if (invalidLumpCount > 0) {
+                throw new Error("WAD has invalid lump bounds (" + invalidLumpCount + " entries out of range)");
             }
             const requiredForDoom = ["PLAYPAL", "COLORMAP", "PNAMES", "TEXTURE1", "STBAR"];
             const missing = requiredForDoom.filter((name) => !lumpNames.has(name));
             const info = {
                 type: sig,
                 lumpCount: lumpCount,
-                missingRequiredLumps: missing
+                missingRequiredLumps: missing,
+                lumpNames: lumpNames,
+                lumpNameList: lumpNameList,
+                lumpEntries: lumpEntries,
+                mapStyle: episodeStyleMapCount > 0 && mapStyleMapCount === 0
+                    ? "episode"
+                    : (mapStyleMapCount > 0 && episodeStyleMapCount === 0 ? "map" : "mixed"),
+                mapCount: episodeStyleMapCount + mapStyleMapCount
             };
-            this.lastWadInfo = info;
-            if (sig !== "IWAD") {
+            const normalizedExpected = String(expectedType || "").toUpperCase().trim();
+            if (normalizedExpected === "IWAD" && sig !== "IWAD") {
                 throw new Error("selected WAD is PWAD; an IWAD is required to boot DOOM");
             }
-            if (missing.length > 0) {
+            if (normalizedExpected === "PWAD" && sig !== "PWAD") {
+                throw new Error("selected WAD is IWAD; choose a PWAD for optional mod loading");
+            }
+            if (sig === "IWAD" && missing.length > 0) {
                 throw new Error("selected IWAD is missing required lumps: " + missing.join(", "));
             }
             return info;
         }
 
-        _buildLaunchArgs(wadPath) {
-            const args = ["-iwad", wadPath];
+        _parseAndValidateWad(bytes, expectedType = "") {
+            return this._analyzeWad(bytes, expectedType);
+        }
+
+        _collectPwadCompatibilityWarnings(iwadInfo, pwadInfo) {
+            const warnings = [];
+            if (!pwadInfo) return warnings;
+            const lumpNames = pwadInfo.lumpNames || new Set();
+            const hasName = (name) => lumpNames.has(String(name || "").toUpperCase());
+            const zdoomFlags = ["MAPINFO", "UMAPINFO", "DECORATE", "ZSCRIPT", "SBARINFO", "ANIMDEFS", "GLDEFS", "LANGUAGE", "SNDINFO"];
+            const flagged = zdoomFlags.filter((name) => hasName(name));
+            if (flagged.length > 0) {
+                warnings.push("PWAD includes advanced port lumps (" + flagged.join(", ") + "); this build may not support them.");
+            }
+            if (pwadInfo.mapCount <= 0 && !hasName("DEHACKED")) {
+                warnings.push("PWAD contains no obvious map lumps; it may rely on unsupported patch behavior.");
+            }
+            if (iwadInfo && iwadInfo.mapStyle && pwadInfo.mapStyle && iwadInfo.mapStyle !== "mixed" && pwadInfo.mapStyle !== "mixed" && iwadInfo.mapStyle !== pwadInfo.mapStyle) {
+                warnings.push("PWAD map naming style (" + pwadInfo.mapStyle + ") differs from IWAD (" + iwadInfo.mapStyle + "); map replacement may fail.");
+            }
+            return warnings;
+        }
+
+        async validateStartPayload(payload = null) {
+            const errors = [];
+            const warnings = [];
+            let iwadInfo = null;
+            let pwadInfo = null;
+            try {
+                const requested = this._extractRequestedWadFiles(payload);
+                const iwadFile = requested.iwadFile;
+                const pwadFile = requested.pwadFile;
+                const explicitPayload = !!requested.explicitPayload;
+                const hasIwadFile = !!iwadFile;
+                const hasPwadFile = !!pwadFile;
+                const cachedIwadAvailable = !!(this._cachedIwadBytes && this._cachedIwadBytes.length);
+                const cachedPwadAvailable = !!(this._cachedPwadBytes && this._cachedPwadBytes.length);
+                const shouldUseCachedPwad = !explicitPayload && !hasPwadFile && cachedPwadAvailable;
+                let iwadBytes = null;
+                let pwadBytes = null;
+                if (hasIwadFile) {
+                    iwadBytes = new Uint8Array(await iwadFile.arrayBuffer());
+                } else if (cachedIwadAvailable) {
+                    iwadBytes = new Uint8Array(this._cachedIwadBytes);
+                } else {
+                    errors.push("Missing IWAD file.");
+                }
+                if (hasPwadFile) {
+                    pwadBytes = new Uint8Array(await pwadFile.arrayBuffer());
+                } else if (shouldUseCachedPwad) {
+                    pwadBytes = new Uint8Array(this._cachedPwadBytes);
+                }
+                if (iwadBytes && iwadBytes.length) {
+                    try {
+                        iwadInfo = this._analyzeWad(iwadBytes, "IWAD");
+                    } catch (error) {
+                        errors.push(error && error.message ? String(error.message) : "IWAD validation failed.");
+                    }
+                } else if (!errors.length) {
+                    errors.push("IWAD file is empty.");
+                }
+                if (pwadBytes && pwadBytes.length) {
+                    try {
+                        pwadInfo = this._analyzeWad(pwadBytes, "PWAD");
+                    } catch (error) {
+                        errors.push(error && error.message ? String(error.message) : "PWAD validation failed.");
+                    }
+                }
+                if (!errors.length && iwadInfo) {
+                    warnings.push.apply(warnings, this._collectPwadCompatibilityWarnings(iwadInfo, pwadInfo));
+                }
+            } catch (error) {
+                errors.push(error && error.message ? String(error.message) : "WAD compatibility preflight failed.");
+            }
+            return {
+                ok: errors.length === 0,
+                errors: errors,
+                warnings: warnings,
+                metadata: {
+                    iwad: iwadInfo || null,
+                    pwad: pwadInfo || null
+                }
+            };
+        }
+
+        _buildLaunchArgs(iwadPath, pwadPath = "") {
+            const args = ["-iwad", iwadPath];
+            if (pwadPath) {
+                args.push("-file", pwadPath);
+            }
             if (Array.isArray(this.launchArgs)) {
                 for (const item of this.launchArgs) {
                     const value = String(item == null ? "" : item).trim();
@@ -657,17 +855,32 @@
             this._rafHandle = 0;
         }
 
-        async start(wadFile) {
-            const hasFile = !!wadFile;
-            if (hasFile && !(wadFile instanceof File)) throw new Error("invalid wad file");
-            const cachedAvailable = !!(this._cachedWadBytes && this._cachedWadBytes.length);
-            const effectiveWadName = hasFile
-                ? String(wadFile.name || "wad")
-                : (this._cachedWadName || "doom.wad");
-            const effectiveWadSize = hasFile
-                ? Number(wadFile.size || 0)
-                : (cachedAvailable ? Number(this._cachedWadBytes.length || 0) : 0);
-            const requestedWadSignature = (effectiveWadName + ":" + effectiveWadSize);
+        async start(payload = null) {
+            const requested = this._extractRequestedWadFiles(payload);
+            const iwadFile = requested.iwadFile;
+            const pwadFile = requested.pwadFile;
+            const explicitPayload = !!requested.explicitPayload;
+            const hasIwadFile = !!iwadFile;
+            const hasPwadFile = !!pwadFile;
+            const cachedIwadAvailable = !!(this._cachedIwadBytes && this._cachedIwadBytes.length);
+            const cachedPwadAvailable = !!(this._cachedPwadBytes && this._cachedPwadBytes.length);
+            const shouldUseCachedPwad = !explicitPayload && !hasPwadFile && cachedPwadAvailable;
+            const effectiveIwadName = hasIwadFile
+                ? String(iwadFile.name || "doom.wad")
+                : (this._cachedIwadName || "doom.wad");
+            const effectiveIwadSize = hasIwadFile
+                ? Number(iwadFile.size || 0)
+                : (cachedIwadAvailable ? Number(this._cachedIwadBytes.length || 0) : 0);
+            const effectivePwadName = hasPwadFile
+                ? String(pwadFile.name || "mod.wad")
+                : (shouldUseCachedPwad ? (this._cachedPwadName || "mod.wad") : "");
+            const effectivePwadSize = hasPwadFile
+                ? Number(pwadFile.size || 0)
+                : (shouldUseCachedPwad ? Number(this._cachedPwadBytes.length || 0) : 0);
+            const requestedWadSignature = [
+                effectiveIwadName + ":" + effectiveIwadSize,
+                effectivePwadName + ":" + effectivePwadSize
+            ].join("|");
 
             const canResumePausedRuntime = (
                 this._paused &&
@@ -677,9 +890,9 @@
                 this._hasUsableAudioContextForResume()
             );
             if (canResumePausedRuntime) {
-                // If no new WAD is provided, resume the previously loaded one.
-                // If a new WAD is provided, only allow resume when it matches the loaded signature.
-                if (hasFile && this._loadedWadSignature && requestedWadSignature !== this._loadedWadSignature) {
+                // If no new WADs are provided, resume previously loaded data.
+                // If any new WAD is provided, only allow resume when signatures match.
+                if ((hasIwadFile || hasPwadFile) && this._loadedWadSignature && requestedWadSignature !== this._loadedWadSignature) {
                     // Fall through to clean restart path.
                 } else {
                     this._emitStatus("Resuming paused DOOM runtime...");
@@ -706,30 +919,54 @@
                 await this.stop();
             }
 
-            let bytes = null;
-            if (hasFile) {
-                this._emitStatus("Reading WAD file...");
-                bytes = new Uint8Array(await wadFile.arrayBuffer());
-                if (!bytes || !bytes.length) {
-                    throw new Error("selected WAD file is empty");
+            let iwadBytes = null;
+            let pwadBytes = null;
+            if (hasIwadFile) {
+                this._emitStatus("Reading IWAD file...");
+                iwadBytes = new Uint8Array(await iwadFile.arrayBuffer());
+                if (!iwadBytes || !iwadBytes.length) {
+                    throw new Error("selected IWAD file is empty");
                 }
-                // Cache bytes for future clean restart without prompting user again.
-                this._cachedWadBytes = new Uint8Array(bytes);
-                this._cachedWadName = effectiveWadName;
-            } else if (cachedAvailable) {
-                this._emitStatus("Using cached WAD for clean restart...");
-                bytes = new Uint8Array(this._cachedWadBytes);
+                this._cachedIwadBytes = new Uint8Array(iwadBytes);
+                this._cachedIwadName = effectiveIwadName;
+            } else if (cachedIwadAvailable) {
+                this._emitStatus("Using cached IWAD for clean restart...");
+                iwadBytes = new Uint8Array(this._cachedIwadBytes);
             } else {
-                throw new Error("missing wad file");
+                throw new Error("missing IWAD file");
+            }
+            if (hasPwadFile) {
+                this._emitStatus("Reading PWAD file...");
+                pwadBytes = new Uint8Array(await pwadFile.arrayBuffer());
+                if (!pwadBytes || !pwadBytes.length) {
+                    throw new Error("selected PWAD file is empty");
+                }
+                this._cachedPwadBytes = new Uint8Array(pwadBytes);
+                this._cachedPwadName = effectivePwadName;
+            } else if (shouldUseCachedPwad) {
+                this._emitStatus("Using cached PWAD for clean restart...");
+                pwadBytes = new Uint8Array(this._cachedPwadBytes);
+            } else {
+                this._cachedPwadBytes = null;
+                this._cachedPwadName = "";
             }
 
             this.lastError = "";
             this._runtimeExitNotified = false;
             try {
-                this._emitStatus("Validating WAD contents...");
-                this._parseAndValidateWad(bytes);
+                this._emitStatus("Validating IWAD contents...");
+                const iwadInfo = this._parseAndValidateWad(iwadBytes, "IWAD");
+                let pwadInfo = null;
+                if (pwadBytes && pwadBytes.length) {
+                    this._emitStatus("Validating PWAD contents...");
+                    pwadInfo = this._parseAndValidateWad(pwadBytes, "PWAD");
+                }
+                this.lastWadInfo = {
+                    iwad: iwadInfo,
+                    pwad: pwadInfo
+                };
                 this.outputCanvas = this._createCanvas();
-            this._ensureCanvasAttached(this.outputCanvas);
+                this._ensureCanvasAttached(this.outputCanvas);
 
                 const runtimeReadyPromise = new Promise((resolve) => {
                     this._runtimeReadyResolve = resolve;
@@ -789,41 +1026,68 @@
                     throw new Error("persistent storage backend is not ready");
                 }
 
-                const wadNameSafe = String(effectiveWadName || "doom.wad").replace(/[^a-zA-Z0-9._-]/g, "_");
-                const wadPath = "/" + wadNameSafe;
+                const iwadNameSafe = String(effectiveIwadName || "doom.wad").replace(/[^a-zA-Z0-9._-]/g, "_");
+                const iwadPath = "/" + iwadNameSafe;
+                const pwadNameSafe = effectivePwadName
+                    ? String(effectivePwadName).replace(/[^a-zA-Z0-9._-]/g, "_")
+                    : "";
+                const pwadPath = pwadNameSafe ? ("/" + pwadNameSafe) : "";
 
-                this._emitStatus("Mounting WAD file...");
+                this._emitStatus("Mounting WAD files...");
                 if (this.module.FS.chdir) this.module.FS.chdir("/");
                 try {
-                    if (this.module.FS.analyzePath && this.module.FS.analyzePath(wadPath).exists) {
-                        this.module.FS.unlink(wadPath);
+                    if (this.module.FS.analyzePath && this.module.FS.analyzePath(iwadPath).exists) {
+                        this.module.FS.unlink(iwadPath);
                     }
                 } catch (_e) {}
-                this.module.FS.writeFile(wadPath, bytes);
-
-                const wadExists = !!(
+                this.module.FS.writeFile(iwadPath, iwadBytes);
+                const iwadExists = !!(
                     this.module.FS &&
                     this.module.FS.analyzePath &&
-                    this.module.FS.analyzePath(wadPath).exists
+                    this.module.FS.analyzePath(iwadPath).exists
                 );
-                if (!wadExists) {
-                    throw new Error("failed to mount WAD file in runtime filesystem");
+                if (!iwadExists) {
+                    throw new Error("failed to mount IWAD file in runtime filesystem");
                 }
                 if (this.module.FS.stat) {
-                    const wadStat = this.module.FS.stat(wadPath);
-                    if (!wadStat || (wadStat.size | 0) <= 0) {
-                        throw new Error("mounted WAD file has invalid size");
+                    const iwadStat = this.module.FS.stat(iwadPath);
+                    if (!iwadStat || (iwadStat.size | 0) <= 0) {
+                        throw new Error("mounted IWAD file has invalid size");
                     }
                 }
-                this._mountedWadPath = wadPath;
-                if (wadNameSafe !== "doom1.wad") {
+                this._mountedIwadPath = iwadPath;
+                this._mountedPwadPath = "";
+                if (iwadNameSafe !== "doom1.wad") {
                     try {
                         if (this.module.FS.analyzePath("/doom1.wad").exists) this.module.FS.unlink("/doom1.wad");
-                        this.module.FS.writeFile("doom1.wad", bytes);
+                        this.module.FS.writeFile("doom1.wad", iwadBytes);
                     } catch (_e) {}
                 }
+                if (pwadPath) {
+                    try {
+                        if (this.module.FS.analyzePath && this.module.FS.analyzePath(pwadPath).exists) {
+                            this.module.FS.unlink(pwadPath);
+                        }
+                    } catch (_e) {}
+                    this.module.FS.writeFile(pwadPath, pwadBytes);
+                    const pwadExists = !!(
+                        this.module.FS &&
+                        this.module.FS.analyzePath &&
+                        this.module.FS.analyzePath(pwadPath).exists
+                    );
+                    if (!pwadExists) {
+                        throw new Error("failed to mount PWAD file in runtime filesystem");
+                    }
+                    if (this.module.FS.stat) {
+                        const pwadStat = this.module.FS.stat(pwadPath);
+                        if (!pwadStat || (pwadStat.size | 0) <= 0) {
+                            throw new Error("mounted PWAD file has invalid size");
+                        }
+                    }
+                    this._mountedPwadPath = pwadPath;
+                }
 
-                const launchArgs = this._buildLaunchArgs(wadPath);
+                const launchArgs = this._buildLaunchArgs(iwadPath, pwadPath);
                 if (this.module.arguments !== undefined) this.module.arguments = launchArgs;
                 this._emitStatus("Starting DOOM...");
                 this._startTitleGuard();
@@ -904,15 +1168,23 @@
                     }
                 } catch (_e) {}
             }
-            if (this.module && this._mountedWadPath) {
+            if (this.module && this._mountedIwadPath) {
                 try {
-                    if (this.module.FS && this.module.FS.analyzePath && this.module.FS.analyzePath(this._mountedWadPath).exists) {
-                        this.module.FS.unlink(this._mountedWadPath);
+                    if (this.module.FS && this.module.FS.analyzePath && this.module.FS.analyzePath(this._mountedIwadPath).exists) {
+                        this.module.FS.unlink(this._mountedIwadPath);
+                    }
+                } catch (_e) {}
+            }
+            if (this.module && this._mountedPwadPath) {
+                try {
+                    if (this.module.FS && this.module.FS.analyzePath && this.module.FS.analyzePath(this._mountedPwadPath).exists) {
+                        this.module.FS.unlink(this._mountedPwadPath);
                     }
                 } catch (_e) {}
             }
             await this._flushPersistentConfigNow();
-            this._mountedWadPath = "";
+            this._mountedIwadPath = "";
+            this._mountedPwadPath = "";
             this.lastFrameVersionDelivered = 0;
             this._runtimeExitNotified = false;
             // Build-agnostic hard reset so a subsequent start gets a fresh runtime.
@@ -936,6 +1208,8 @@
                 this._loadedWadSignature = "";
                 this._paused = false;
                 this._resumePoisoned = false;
+                this._persistentMounted = false;
+                this._persistSyncInFlight = false;
             } else {
                 // Non-modularized runtime stays loaded in-page; reuse on next start via resumeMainLoop.
                 this._moduleKind = "global";

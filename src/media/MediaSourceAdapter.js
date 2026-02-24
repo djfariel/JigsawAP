@@ -19,15 +19,15 @@
             this.gifNextFrameAt = 0;
             this._gifFrameVersion = 0;
             this._gifFrameDeliveredVersion = 0;
-            this.doomAdapter = null;
-            this.doomCanvas = null;
-            this.doomFrameVersion = 0;
-            this.doomFrameDeliveredVersion = 0;
-            this._stateBeforeDoom = null;
+            this.moduleAdapter = null;
+            this.moduleCanvas = null;
+            this.moduleFrameVersion = 0;
+            this.moduleFrameDeliveredVersion = 0;
+            this._stateBeforeModule = null;
         }
 
         setImageSource(img, kind = "image") {
-            this.clearDoomSource(false);
+            this.clearModuleSource(false);
             this._stopGifPlayback();
             this.mode = kind === "gif" ? "gif" : "image";
             this.image = img || null;
@@ -37,7 +37,7 @@
         }
 
         setVideoElement(videoEl, kind = "video") {
-            this.clearDoomSource(false);
+            this.clearModuleSource(false);
             this._stopGifPlayback();
             this.mode = (kind === "camera" || kind === "display") ? kind : "video";
             this.video = videoEl || null;
@@ -48,7 +48,7 @@
         }
 
         async setCameraStream(constraints = { video: true, audio: false }) {
-            this.clearDoomSource(false);
+            this.clearModuleSource(false);
             this._stopGifPlayback();
             this.mode = "camera";
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -71,7 +71,7 @@
         }
 
         async setDisplayStream(stream) {
-            this.clearDoomSource(false);
+            this.clearModuleSource(false);
             this._stopGifPlayback();
             this.mode = "display";
             if (!stream || !stream.getTracks) {
@@ -94,7 +94,7 @@
         }
 
         async startGifPlayback(url) {
-            this.clearDoomSource(false);
+            this.clearModuleSource(false);
             this._stopGifPlayback();
             this.mode = "gif-decoded";
             this.ready = false;
@@ -161,7 +161,7 @@
         }
 
         stop() {
-            this.clearDoomSource(false);
+            this.clearModuleSource(false);
             this._stopGifPlayback();
             if (this.stream) {
                 this.stream.getTracks().forEach((t) => t.stop());
@@ -171,32 +171,32 @@
             this.failureReason = "stopped";
         }
 
-        setDoomSource(adapter, sourceCanvas = null) {
+        setModuleSource(adapter, sourceCanvas = null) {
             if (!adapter) {
-                this.failureReason = "doom-adapter-missing";
+                this.failureReason = "module-adapter-missing";
                 this.ready = false;
                 return false;
             }
-            if (!this._stateBeforeDoom) this._stateBeforeDoom = this._createSnapshot();
-            this.doomAdapter = adapter;
-            this.doomCanvas = sourceCanvas || (adapter.getFrameSource ? adapter.getFrameSource() : null);
-            this.mode = "doom";
-            this.ready = !!this.doomCanvas;
-            this.failureReason = this.ready ? "" : "doom-frame-not-ready";
+            if (!this._stateBeforeModule) this._stateBeforeModule = this._createSnapshot();
+            this.moduleAdapter = adapter;
+            this.moduleCanvas = sourceCanvas || (adapter.getFrameSource ? adapter.getFrameSource() : null);
+            this.mode = "module";
+            this.ready = !!this.moduleCanvas;
+            this.failureReason = this.ready ? "" : "module-frame-not-ready";
             this.lastFrameAt = 0;
-            this.doomFrameVersion = 0;
-            this.doomFrameDeliveredVersion = 0;
+            this.moduleFrameVersion = 0;
+            this.moduleFrameDeliveredVersion = 0;
             return this.ready;
         }
 
-        clearDoomSource(restorePrevious = true) {
-            if (this.mode !== "doom" && !this.doomAdapter && !this._stateBeforeDoom) return false;
-            const snapshot = this._stateBeforeDoom;
-            this.doomAdapter = null;
-            this.doomCanvas = null;
-            this.doomFrameVersion = 0;
-            this.doomFrameDeliveredVersion = 0;
-            this._stateBeforeDoom = null;
+        clearModuleSource(restorePrevious = true) {
+            if (this.mode !== "module" && !this.moduleAdapter && !this._stateBeforeModule) return false;
+            const snapshot = this._stateBeforeModule;
+            this.moduleAdapter = null;
+            this.moduleCanvas = null;
+            this.moduleFrameVersion = 0;
+            this.moduleFrameDeliveredVersion = 0;
+            this._stateBeforeModule = null;
             if (restorePrevious && snapshot) {
                 this._restoreSnapshot(snapshot);
                 return true;
@@ -210,13 +210,13 @@
             return true;
         }
 
-        isDoomActive() {
-            return this.mode === "doom" && !!this.doomAdapter;
+        isModuleActive() {
+            return this.mode === "module" && !!this.moduleAdapter;
         }
 
         getFrameSource() {
             if (!this.ready) return null;
-            if (this.mode === "doom") return this.doomCanvas || (this.doomAdapter && this.doomAdapter.getFrameSource ? this.doomAdapter.getFrameSource() : null);
+            if (this.mode === "module") return this.moduleCanvas || (this.moduleAdapter && this.moduleAdapter.getFrameSource ? this.moduleAdapter.getFrameSource() : null);
             if (this.mode === "gif-decoded") return this.gifFrameCanvas;
             if (this.mode === "image" || this.mode === "gif") return this.image;
             if (this.mode === "video" || this.mode === "camera" || this.mode === "display") return this.video;
@@ -228,26 +228,26 @@
                 this.ready = true;
                 this.failureReason = "";
             }
-            if (this.mode === "doom") {
-                if (!this.doomAdapter || !this.doomAdapter.isRunning || !this.doomAdapter.isRunning()) {
+            if (this.mode === "module") {
+                if (!this.moduleAdapter || !this.moduleAdapter.isRunning || !this.moduleAdapter.isRunning()) {
                     this.ready = false;
-                    this.failureReason = "doom-stopped";
+                    this.failureReason = "module-stopped";
                     return false;
                 }
-                if (this.doomAdapter.updateFrameClock && this.doomAdapter.updateFrameClock(nowMs)) {
-                    this.doomFrameVersion++;
+                if (this.moduleAdapter.updateFrameClock && this.moduleAdapter.updateFrameClock(nowMs)) {
+                    this.moduleFrameVersion++;
                 }
-                const latestCanvas = this.doomAdapter.getFrameSource ? this.doomAdapter.getFrameSource() : null;
+                const latestCanvas = this.moduleAdapter.getFrameSource ? this.moduleAdapter.getFrameSource() : null;
                 if (latestCanvas) {
-                    this.doomCanvas = latestCanvas;
+                    this.moduleCanvas = latestCanvas;
                     this.ready = true;
-                } else if (!this.doomCanvas) {
+                } else if (!this.moduleCanvas) {
                     this.ready = false;
-                    this.failureReason = "doom-frame-not-ready";
+                    this.failureReason = "module-frame-not-ready";
                     return false;
                 }
-                if (this.doomFrameVersion > this.doomFrameDeliveredVersion) {
-                    this.doomFrameDeliveredVersion = this.doomFrameVersion;
+                if (this.moduleFrameVersion > this.moduleFrameDeliveredVersion) {
+                    this.moduleFrameDeliveredVersion = this.moduleFrameVersion;
                     this.lastFrameAt = nowMs || 0;
                     this.failureReason = "";
                     return true;
@@ -306,8 +306,8 @@
                 lastFrameAt: this.lastFrameAt || 0,
                 frameVersion: this._gifFrameVersion || 0,
                 frameCount: this.gifFrames.length || 0,
-                doomActive: this.isDoomActive(),
-                doomFrameVersion: this.doomFrameVersion || 0
+                moduleActive: this.isModuleActive(),
+                moduleFrameVersion: this.moduleFrameVersion || 0
             };
         }
 

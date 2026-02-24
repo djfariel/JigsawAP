@@ -250,9 +250,9 @@
             }
         }
 
-        setDoomSource(doomAdapter, sourceCanvas = null) {
-            if (!this.media || !this.media.setDoomSource) return false;
-            const ok = this.media.setDoomSource(doomAdapter, sourceCanvas);
+        setModuleSource(moduleAdapter, sourceCanvas = null) {
+            if (!this.media || !this.media.setModuleSource) return false;
+            const ok = this.media.setModuleSource(moduleAdapter, sourceCanvas);
             const source = this.media.getFrameSource ? this.media.getFrameSource() : sourceCanvas;
             if (source) {
                 if (this.canvasRenderer && this.canvasRenderer.setMediaSource) {
@@ -266,9 +266,9 @@
             return !!ok;
         }
 
-        clearDoomSource(restorePrevious = true) {
-            if (!this.media || !this.media.clearDoomSource) return false;
-            const ok = this.media.clearDoomSource(restorePrevious);
+        clearModuleSource(restorePrevious = true) {
+            if (!this.media || !this.media.clearModuleSource) return false;
+            const ok = this.media.clearModuleSource(restorePrevious);
             const source = this.media.getFrameSource ? this.media.getFrameSource() : null;
             if (source) {
                 if (this.canvasRenderer && this.canvasRenderer.setMediaSource) {
@@ -282,8 +282,8 @@
             return !!ok;
         }
 
-        isDoomActive() {
-            return !!(this.media && this.media.isDoomActive && this.media.isDoomActive());
+        isModuleActive() {
+            return !!(this.media && this.media.isModuleActive && this.media.isModuleActive());
         }
 
         async setCameraStream(constraints = { video: true, audio: false }) {
