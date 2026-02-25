@@ -543,23 +543,14 @@
 
 <!-- partial -->
 
-  <script type="module" src="./clientandpreview.js"></script>
-  <script type="module" src="./loadimages.js"></script>
-  <script type="module" src="./aplogin.js"></script>
-  <script src="./src/core/PuzzleSceneState.js"></script>
-  <script src="./src/core/PieceSetupQueue.js"></script>
-  <script src="./src/core/HitTestService.js"></script>
-  <script src="./src/render/RenderScheduler.js"></script>
-  <script src="./src/media/MediaSourceAdapter.js"></script>
-  <script src="./src/media/MediaBindings.js"></script>
-  <script src="./src/render/canvas2d/CanvasRenderer.js"></script>
-  <script src="./src/render/webgl/WebGLRenderer.js"></script>
-  <script src="./src/render/RendererFacade.js"></script>
-  <script src="./src/ui/ViewControls.js"></script>
-  <script src="./src/ui/RendererModeControl.js"></script>
-  <script src="./src/integration/ArchipelagoBridge.js"></script>
-  <script  src="./script.js"></script>
-  <!-- <script  src="./debug.js"></script> -->
+  <script>
+    window.JIGSAW_CDN_CONFIG = {
+      enabled: true,
+      repo: "spinerak/JigsawAP",
+      tag: "v0.0.0"
+    };
+  </script>
+  <script src="./cdn-loader.js"></script>
 
 
 

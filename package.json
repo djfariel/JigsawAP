@@ -1,0 +1,19 @@
+{
+  "name": "jigsawap",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Asset pipeline for JS/CSS minification and CDN publishing.",
+  "scripts": {
+    "build:assets": "node ./scripts/build-assets.mjs",
+    "build:assets:check": "node ./scripts/build-assets.mjs --check",
+    "release:prep": "npm run build:assets"
+  },
+  "devDependencies": {
+    "@fullhuman/postcss-purgecss": "^7.0.2",
+    "cssnano": "^7.1.2",
+    "fast-glob": "^3.3.3",
+    "postcss": "^8.5.6",
+    "purgecss": "^7.0.2",
+    "terser": "^5.44.1"
+  }
+}

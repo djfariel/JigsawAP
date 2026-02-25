@@ -1,0 +1,121 @@
+[
+  {
+    "type": "css",
+    "path": "style.css",
+    "module": false,
+    "localPath": "style.css",
+    "outputPath": "dist-assets/style.5c95656f43.css"
+  },
+  {
+    "type": "js",
+    "path": "clientandpreview.js",
+    "module": true,
+    "localPath": "clientandpreview.js",
+    "outputPath": "dist-assets/clientandpreview.4a6e329cf9.js"
+  },
+  {
+    "type": "js",
+    "path": "loadimages.js",
+    "module": true,
+    "localPath": "loadimages.js",
+    "outputPath": "dist-assets/loadimages.1f36d721ca.js"
+  },
+  {
+    "type": "js",
+    "path": "aplogin.js",
+    "module": true,
+    "localPath": "aplogin.js",
+    "outputPath": "dist-assets/aplogin.eb21224ba4.js"
+  },
+  {
+    "type": "js",
+    "path": "src/core/PuzzleSceneState.js",
+    "module": false,
+    "localPath": "src/core/PuzzleSceneState.js",
+    "outputPath": "dist-assets/src/core/PuzzleSceneState.d45bd9eb33.js"
+  },
+  {
+    "type": "js",
+    "path": "src/core/PieceSetupQueue.js",
+    "module": false,
+    "localPath": "src/core/PieceSetupQueue.js",
+    "outputPath": "dist-assets/src/core/PieceSetupQueue.b31c352852.js"
+  },
+  {
+    "type": "js",
+    "path": "src/core/HitTestService.js",
+    "module": false,
+    "localPath": "src/core/HitTestService.js",
+    "outputPath": "dist-assets/src/core/HitTestService.486243015a.js"
+  },
+  {
+    "type": "js",
+    "path": "src/render/RenderScheduler.js",
+    "module": false,
+    "localPath": "src/render/RenderScheduler.js",
+    "outputPath": "dist-assets/src/render/RenderScheduler.5e35c484f0.js"
+  },
+  {
+    "type": "js",
+    "path": "src/media/MediaSourceAdapter.js",
+    "module": false,
+    "localPath": "src/media/MediaSourceAdapter.js",
+    "outputPath": "dist-assets/src/media/MediaSourceAdapter.2a61e9097a.js"
+  },
+  {
+    "type": "js",
+    "path": "src/media/MediaBindings.js",
+    "module": false,
+    "localPath": "src/media/MediaBindings.js",
+    "outputPath": "dist-assets/src/media/MediaBindings.397b0c4ad3.js"
+  },
+  {
+    "type": "js",
+    "path": "src/render/canvas2d/CanvasRenderer.js",
+    "module": false,
+    "localPath": "src/render/canvas2d/CanvasRenderer.js",
+    "outputPath": "dist-assets/src/render/canvas2d/CanvasRenderer.800c0334da.js"
+  },
+  {
+    "type": "js",
+    "path": "src/render/webgl/WebGLRenderer.js",
+    "module": false,
+    "localPath": "src/render/webgl/WebGLRenderer.js",
+    "outputPath": "dist-assets/src/render/webgl/WebGLRenderer.546a9a3fcf.js"
+  },
+  {
+    "type": "js",
+    "path": "src/render/RendererFacade.js",
+    "module": false,
+    "localPath": "src/render/RendererFacade.js",
+    "outputPath": "dist-assets/src/render/RendererFacade.089fe42722.js"
+  },
+  {
+    "type": "js",
+    "path": "src/ui/ViewControls.js",
+    "module": false,
+    "localPath": "src/ui/ViewControls.js",
+    "outputPath": "dist-assets/src/ui/ViewControls.dcafa21fc8.js"
+  },
+  {
+    "type": "js",
+    "path": "src/ui/RendererModeControl.js",
+    "module": false,
+    "localPath": "src/ui/RendererModeControl.js",
+    "outputPath": "dist-assets/src/ui/RendererModeControl.60faa3c621.js"
+  },
+  {
+    "type": "js",
+    "path": "src/integration/ArchipelagoBridge.js",
+    "module": false,
+    "localPath": "src/integration/ArchipelagoBridge.js",
+    "outputPath": "dist-assets/src/integration/ArchipelagoBridge.47aae319eb.js"
+  },
+  {
+    "type": "js",
+    "path": "script.js",
+    "module": false,
+    "localPath": "script.js",
+    "outputPath": "dist-assets/script.6127a528ed.js"
+  }
+]

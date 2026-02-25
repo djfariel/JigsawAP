@@ -1,0 +1,56 @@
+name: Publish CDN Assets
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build minified assets
+        run: npm run build:assets
+
+      - name: Ensure dist-assets are committed before tagging
+        run: |
+          git diff --exit-code -- dist-assets asset-list.json index.html || (
+            echo "Generated assets differ from tagged commit."
+            echo "Run 'npm run build:assets', commit results, then re-tag."
+            exit 1
+          )
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-assets-${{ github.ref_name }}
+          path: |
+            dist-assets/**
+            asset-list.json
+            cdn-loader.js
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist-assets/manifest.json
+            dist-assets/manifest.js
+            dist-assets/asset-order.json

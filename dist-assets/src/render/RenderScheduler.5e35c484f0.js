@@ -1,0 +1,1 @@
+"use strict";!function(t){t.JigsawRenderScheduler=class{constructor({targetFrameMs:t=16,maxRenderMs:e=8}={}){this.targetFrameMs=t,this.maxRenderMs=e,this.lastFrameAt=0,this.enabled=!0}shouldRender(t){return!!this.enabled&&((0===this.lastFrameAt||t-this.lastFrameAt>=this.targetFrameMs)&&(this.lastFrameAt=t,!0))}}}(window);

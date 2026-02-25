@@ -1,0 +1,25 @@
+{
+  "styles": [
+    {
+      "path": "style.css"
+    }
+  ],
+  "scripts": [
+    { "path": "clientandpreview.js", "module": true },
+    { "path": "loadimages.js", "module": true },
+    { "path": "aplogin.js", "module": true },
+    { "path": "src/core/PuzzleSceneState.js", "module": false },
+    { "path": "src/core/PieceSetupQueue.js", "module": false },
+    { "path": "src/core/HitTestService.js", "module": false },
+    { "path": "src/render/RenderScheduler.js", "module": false },
+    { "path": "src/media/MediaSourceAdapter.js", "module": false },
+    { "path": "src/media/MediaBindings.js", "module": false },
+    { "path": "src/render/canvas2d/CanvasRenderer.js", "module": false },
+    { "path": "src/render/webgl/WebGLRenderer.js", "module": false },
+    { "path": "src/render/RendererFacade.js", "module": false },
+    { "path": "src/ui/ViewControls.js", "module": false },
+    { "path": "src/ui/RendererModeControl.js", "module": false },
+    { "path": "src/integration/ArchipelagoBridge.js", "module": false },
+    { "path": "script.js", "module": false }
+  ]
+}
