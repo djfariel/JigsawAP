@@ -6,7 +6,7 @@ Do not edit anything in `dist-assets` manually.
 
 To update these files, run:
 
-```bash
+```
 npm run build:assets
 ```
 
